@@ -7,17 +7,18 @@ import AppShell from '@/components/layout/AppShell'
 import { clients, agency, formatEur } from '@/lib/data'
 import {
   ArrowLeft, Plus, Trash2, Save, Eye, ChevronDown,
-  Building2, Calendar, Hash, FileText,
+  Building2, Hash, FileText, Percent, CreditCard,
 } from 'lucide-react'
 
 interface Line {
   label: string
+  description: string
   qty: string
   unit: string
   tva: string
 }
 
-const emptyLine = (): Line => ({ label: '', qty: '1', unit: '', tva: '20' })
+const emptyLine = (): Line => ({ label: '', description: '', qty: '1', unit: '', tva: '20' })
 
 function calcLine(l: Line) {
   const q = parseFloat(l.qty) || 0
@@ -28,33 +29,50 @@ function calcLine(l: Line) {
   return { ht, tvaAmt, ttc: ht + tvaAmt }
 }
 
-function calcTotals(lines: Line[]) {
-  const ht = lines.reduce((s, l) => s + calcLine(l).ht, 0)
-  const tva = lines.reduce((s, l) => s + calcLine(l).tvaAmt, 0)
-  return { ht, tva, ttc: ht + tva }
+function calcTotals(lines: Line[], discount = 0) {
+  const rawHt = lines.reduce((s, l) => s + calcLine(l).ht, 0)
+  const discountAmt = rawHt * (discount / 100)
+  const ht = rawHt - discountAmt
+  const tva = lines.reduce((s, l) => {
+    const lineHt = calcLine(l).ht * (1 - discount / 100)
+    return s + lineHt * (parseFloat(l.tva) / 100)
+  }, 0)
+  return { rawHt, discountAmt, ht, tva, ttc: ht + tva }
 }
 
 type View = 'form' | 'preview'
+type PaymentMode = 'Virement bancaire' | 'Chèque' | 'Carte bancaire' | 'Espèces'
 
 export default function NewInvoicePage() {
   const router = useRouter()
   const [view, setView] = useState<View>('form')
   const [clientId, setClientId] = useState('')
   const [number, setNumber] = useState('FAC-2025-008')
+  const [object, setObject] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState('')
   const [paymentTerms, setPaymentTerms] = useState('30')
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('Virement bancaire')
+  const [discount, setDiscount] = useState('0')
+  const [deposit, setDeposit] = useState('0')
   const [notes, setNotes] = useState('')
+  const [expandedLine, setExpandedLine] = useState<number | null>(null)
   const [lines, setLines] = useState<Line[]>([emptyLine()])
   const [saved, setSaved] = useState(false)
 
   const selectedClient = clients.find((c) => c.id === clientId)
-  const { ht, tva, ttc } = calcTotals(lines)
+  const discountNum = parseFloat(discount) || 0
+  const depositNum = parseFloat(deposit) || 0
+  const { rawHt, discountAmt, ht, tva, ttc } = calcTotals(lines, discountNum)
+  const remaining = ttc - depositNum
 
   const updateLine = (i: number, field: keyof Line, value: string) => {
     setLines((prev) => prev.map((l, idx) => idx === i ? { ...l, [field]: value } : l))
   }
-  const addLine = () => setLines((prev) => [...prev, emptyLine()])
+  const addLine = () => {
+    setLines((prev) => [...prev, emptyLine()])
+    setExpandedLine(lines.length)
+  }
   const removeLine = (i: number) => setLines((prev) => prev.filter((_, idx) => idx !== i))
 
   const handleSave = () => {
@@ -151,6 +169,31 @@ export default function NewInvoicePage() {
                       {computedDueDate() || '—'}
                     </div>
                   </div>
+                  <div className="col-span-2">
+                    <label className="text-[11px] text-[#555E6B] uppercase tracking-wide font-medium block mb-1.5">Objet de la facture</label>
+                    <input
+                      value={object}
+                      onChange={(e) => setObject(e.target.value)}
+                      placeholder="Ex: Développement plateforme e-commerce — Phase 2"
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-[#F0F2F5] placeholder:text-[#555E6B] outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-[#555E6B] uppercase tracking-wide font-medium block mb-1.5 flex items-center gap-1"><CreditCard size={10} /> Mode de règlement</label>
+                    <div className="relative">
+                      <select
+                        value={paymentMode}
+                        onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-[#F0F2F5] outline-none focus:border-[#4F7CFF]/50 transition-colors appearance-none"
+                      >
+                        <option>Virement bancaire</option>
+                        <option>Chèque</option>
+                        <option>Carte bancaire</option>
+                        <option>Espèces</option>
+                      </select>
+                      <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555E6B] pointer-events-none" />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -195,54 +238,55 @@ export default function NewInvoicePage() {
                 </button>
               </div>
 
-              <div className="p-5 space-y-2">
+              <div className="p-5 space-y-3">
                 {/* Header row */}
                 <div className="grid grid-cols-12 gap-2 mb-1">
                   <span className="col-span-5 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium">Désignation</span>
-                  <span className="col-span-2 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">Qté / Heures</span>
+                  <span className="col-span-2 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">Qté / j.</span>
                   <span className="col-span-2 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">P.U. HT (€)</span>
-                  <span className="col-span-1 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">TVA %</span>
+                  <span className="col-span-1 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">TVA</span>
                   <span className="col-span-2 text-[10px] text-[#555E6B] uppercase tracking-wide font-medium text-right">Total HT</span>
                 </div>
 
                 {lines.map((line, i) => {
                   const { ht: lineHt } = calcLine(line)
+                  const isOpen = expandedLine === i
                   return (
-                    <div key={i} className="grid grid-cols-12 gap-2 items-center group">
-                      <div className="col-span-5">
-                        <input
-                          value={line.label}
-                          onChange={(e) => updateLine(i, 'label', e.target.value)}
-                          placeholder="Ex: Développement frontend"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] placeholder:text-[#555E6B] outline-none focus:border-[#4F7CFF]/50 transition-colors"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          value={line.qty}
-                          onChange={(e) => updateLine(i, 'qty', e.target.value)}
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] text-right outline-none focus:border-[#4F7CFF]/50 transition-colors"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          value={line.unit}
-                          onChange={(e) => updateLine(i, 'unit', e.target.value)}
-                          type="number"
-                          min="0"
-                          placeholder="0"
-                          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] text-right outline-none focus:border-[#4F7CFF]/50 transition-colors"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <div className="relative">
+                    <div key={i} className="border border-white/[0.06] rounded-xl overflow-hidden">
+                      <div className="grid grid-cols-12 gap-2 items-center p-3">
+                        <div className="col-span-5">
+                          <input
+                            value={line.label}
+                            onChange={(e) => updateLine(i, 'label', e.target.value)}
+                            placeholder="Ex: Développement frontend"
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] placeholder:text-[#555E6B] outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            value={line.qty}
+                            onChange={(e) => updateLine(i, 'qty', e.target.value)}
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] text-right outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <input
+                            value={line.unit}
+                            onChange={(e) => updateLine(i, 'unit', e.target.value)}
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-[#F0F2F5] text-right outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                          />
+                        </div>
+                        <div className="col-span-1">
                           <select
                             value={line.tva}
                             onChange={(e) => updateLine(i, 'tva', e.target.value)}
-                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-[#F0F2F5] text-right outline-none focus:border-[#4F7CFF]/50 transition-colors appearance-none"
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-[#F0F2F5] outline-none focus:border-[#4F7CFF]/50 transition-colors appearance-none"
                           >
                             <option value="0">0%</option>
                             <option value="5.5">5.5%</option>
@@ -250,30 +294,89 @@ export default function NewInvoicePage() {
                             <option value="20">20%</option>
                           </select>
                         </div>
-                      </div>
-                      <div className="col-span-2 flex items-center justify-end gap-2">
-                        <span className="text-sm font-medium text-[#F0F2F5] tabular-nums">
-                          {lineHt > 0 ? formatEur(lineHt) : '—'}
-                        </span>
-                        {lines.length > 1 && (
+                        <div className="col-span-2 flex items-center justify-end gap-1.5">
+                          <span className="text-sm font-medium text-[#F0F2F5] tabular-nums">
+                            {lineHt > 0 ? formatEur(lineHt) : '—'}
+                          </span>
                           <button
-                            onClick={() => removeLine(i)}
-                            className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md flex items-center justify-center text-[#555E6B] hover:text-red-400 hover:bg-red-400/10 transition-all"
+                            onClick={() => setExpandedLine(isOpen ? null : i)}
+                            title="Ajouter une description"
+                            className="w-6 h-6 rounded-md flex items-center justify-center text-[#555E6B] hover:text-[#4F7CFF] hover:bg-[#4F7CFF]/10 transition-all"
                           >
-                            <Trash2 size={12} />
+                            <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                           </button>
-                        )}
+                          {lines.length > 1 && (
+                            <button
+                              onClick={() => removeLine(i)}
+                              className="w-6 h-6 rounded-md flex items-center justify-center text-[#555E6B] hover:text-red-400 hover:bg-red-400/10 transition-all"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {isOpen && (
+                        <div className="px-3 pb-3 border-t border-white/[0.04]">
+                          <textarea
+                            value={line.description}
+                            onChange={(e) => updateLine(i, 'description', e.target.value)}
+                            rows={2}
+                            placeholder="Description détaillée (optionnel)…"
+                            className="w-full mt-2 bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-[#8B93A0] placeholder:text-[#555E6B] outline-none focus:border-[#4F7CFF]/40 transition-colors resize-none"
+                          />
+                        </div>
+                      )}
                     </div>
                   )
                 })}
               </div>
 
-              {/* Totals */}
-              <div className="px-5 pb-5 flex justify-end">
-                <div className="w-72 space-y-2 border-t border-white/[0.06] pt-4">
+              {/* Discount + Totals */}
+              <div className="px-5 pb-5 grid lg:grid-cols-2 gap-5 items-end">
+                {/* Discount & Deposit inputs */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <label className="text-[11px] text-[#555E6B] uppercase tracking-wide font-medium block mb-1.5 flex items-center gap-1"><Percent size={10} /> Remise globale (%)</label>
+                      <input
+                        value={discount}
+                        onChange={(e) => setDiscount(e.target.value)}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        placeholder="0"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-[#F0F2F5] outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[11px] text-[#555E6B] uppercase tracking-wide font-medium block mb-1.5">Acompte reçu (€)</label>
+                      <input
+                        value={deposit}
+                        onChange={(e) => setDeposit(e.target.value)}
+                        type="number"
+                        min="0"
+                        step="100"
+                        placeholder="0"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-[#F0F2F5] outline-none focus:border-[#4F7CFF]/50 transition-colors"
+                      />
+                    </div>
+                  </div>
+                </div>
+                {/* Totals */}
+                <div className="w-full space-y-2 border-t border-white/[0.06] pt-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-[#8B93A0]">Sous-total HT</span>
+                    <span className="text-[#F0F2F5] tabular-nums">{formatEur(rawHt)}</span>
+                  </div>
+                  {discountNum > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-emerald-400">Remise ({discount}%)</span>
+                      <span className="text-emerald-400 tabular-nums">− {formatEur(discountAmt)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#8B93A0]">Total HT</span>
                     <span className="text-[#F0F2F5] tabular-nums">{formatEur(ht)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -284,6 +387,18 @@ export default function NewInvoicePage() {
                     <span className="text-[#F0F2F5]">Total TTC</span>
                     <span className="text-[#4F7CFF] tabular-nums">{formatEur(ttc)}</span>
                   </div>
+                  {depositNum > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-[#8B93A0]">Acompte versé</span>
+                        <span className="text-[#F0F2F5] tabular-nums">− {formatEur(depositNum)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-semibold pt-1 border-t border-white/[0.06]">
+                        <span className="text-amber-400">Solde à régler</span>
+                        <span className="text-amber-400 tabular-nums">{formatEur(Math.max(0, remaining))}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -358,6 +473,7 @@ export default function NewInvoicePage() {
                   <div className="text-right">
                     <p className="text-[11px] text-[#555E6B] uppercase tracking-widest mb-1">Facture</p>
                     <p className="text-2xl font-bold text-[#F0F2F5] font-mono">{number}</p>
+                    {object && <p className="text-xs text-[#8B93A0] mt-1 max-w-52 text-right">{object}</p>}
                     <div className="mt-2 space-y-1 text-right">
                       <p className="text-xs text-[#8B93A0]">Émise le <span className="text-[#F0F2F5] font-medium">{displayDate}</span></p>
                       <p className="text-xs text-[#8B93A0]">Échéance <span className="text-amber-400 font-medium">{computedDueDate()}</span></p>
@@ -396,37 +512,58 @@ export default function NewInvoicePage() {
                     {lines.filter(l => l.label || l.unit).map((line, i) => {
                       const { ht: lHt } = calcLine(line)
                       return (
-                        <tr key={i} className="border-b border-white/[0.04]">
-                          <td className="py-3 text-sm text-[#F0F2F5]">{line.label || '—'}</td>
-                          <td className="py-3 text-sm text-[#8B93A0] text-right">{line.qty}</td>
-                          <td className="py-3 text-sm text-[#8B93A0] text-right">{line.unit ? formatEur(parseFloat(line.unit)) : '—'}</td>
-                          <td className="py-3 text-sm text-[#8B93A0] text-right">{line.tva}%</td>
-                          <td className="py-3 text-sm font-medium text-[#F0F2F5] text-right">{lHt > 0 ? formatEur(lHt) : '—'}</td>
-                        </tr>
+                        <>
+                          <tr key={i} className="border-b border-white/[0.04]">
+                            <td className="py-3 text-sm text-[#F0F2F5] font-medium">{line.label || '—'}</td>
+                            <td className="py-3 text-sm text-[#8B93A0] text-right">{line.qty}</td>
+                            <td className="py-3 text-sm text-[#8B93A0] text-right">{line.unit ? formatEur(parseFloat(line.unit)) : '—'}</td>
+                            <td className="py-3 text-sm text-[#8B93A0] text-right">{line.tva}%</td>
+                            <td className="py-3 text-sm font-semibold text-[#F0F2F5] text-right">{lHt > 0 ? formatEur(lHt) : '—'}</td>
+                          </tr>
+                          {line.description && (
+                            <tr key={`d-${i}`} className="border-b border-white/[0.04]">
+                              <td colSpan={5} className="pb-3 pt-0 text-xs text-[#555E6B] italic pl-2">{line.description}</td>
+                            </tr>
+                          )}
+                        </>
                       )
                     })}
                   </tbody>
                 </table>
 
                 <div className="mt-6 max-w-xs ml-auto space-y-2 border-t border-white/[0.08] pt-4">
-                  <div className="flex justify-between text-sm"><span className="text-[#8B93A0]">Sous-total HT</span><span className="text-[#F0F2F5] tabular-nums">{formatEur(ht)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-[#8B93A0]">Sous-total HT</span><span className="text-[#F0F2F5] tabular-nums">{formatEur(rawHt)}</span></div>
+                  {discountNum > 0 && (
+                    <div className="flex justify-between text-sm"><span className="text-emerald-400">Remise ({discount}%)</span><span className="text-emerald-400 tabular-nums">− {formatEur(discountAmt)}</span></div>
+                  )}
+                  <div className="flex justify-between text-sm"><span className="text-[#8B93A0]">Total HT</span><span className="text-[#F0F2F5] tabular-nums">{formatEur(ht)}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-[#8B93A0]">TVA</span><span className="text-[#F0F2F5] tabular-nums">{formatEur(tva)}</span></div>
                   <div className="flex justify-between text-base font-bold pt-3 border-t border-white/[0.08]">
                     <span className="text-[#F0F2F5]">Total TTC</span>
                     <span className="text-[#4F7CFF] tabular-nums">{formatEur(ttc)}</span>
                   </div>
+                  {depositNum > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm"><span className="text-[#8B93A0]">Acompte versé</span><span className="text-[#F0F2F5] tabular-nums">− {formatEur(depositNum)}</span></div>
+                      <div className="flex justify-between text-sm font-bold pt-1 border-t border-white/[0.06]">
+                        <span className="text-amber-400">Solde à régler</span>
+                        <span className="text-amber-400 tabular-nums">{formatEur(Math.max(0, remaining))}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Payment info */}
-              <div className="mx-8 mb-6 p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+              <div className="mx-8 mb-6 p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-1.5">
                 <p className="text-xs text-[#555E6B]">
-                  <span className="text-[#8B93A0] font-medium">Mode de règlement :</span> Virement bancaire — IBAN FR76 XXXX XXXX XXXX XXXX — Référence : {number}
+                  <span className="text-[#8B93A0] font-medium">Mode de règlement :</span> {paymentMode}
+                  {paymentMode === 'Virement bancaire' && <> — IBAN FR76 XXXX XXXX XXXX XXXX — Référence : {number}</>}
                 </p>
-                <p className="text-xs text-[#555E6B] mt-1">
+                <p className="text-xs text-[#555E6B]">
                   Pénalités de retard : 3× le taux d&apos;intérêt légal en vigueur. Indemnité forfaitaire pour frais de recouvrement : 40 €.
                 </p>
-                {notes && <p className="text-xs text-[#8B93A0] mt-2 border-t border-white/[0.04] pt-2">{notes}</p>}
+                {notes && <p className="text-xs text-[#8B93A0] border-t border-white/[0.04] pt-2">{notes}</p>}
               </div>
 
               <div className="px-8 pb-4 text-xs text-[#555E6B] text-center border-t border-white/[0.04] pt-4">
