@@ -40,10 +40,10 @@ export default function DevisPage() {
               <p className="text-xs text-[#8B93A0]">Valeur totale</p>
             </div>
           </div>
-          <button className="flex items-center gap-2 bg-[#4F7CFF] hover:bg-[#4F7CFF]/90 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+          <Link href="/devis/nouveau" className="flex items-center gap-2 bg-[#4F7CFF] hover:bg-[#7b9fff] text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
             <Plus size={16} />
             Nouveau devis
-          </button>
+          </Link>
         </motion.div>
 
         {/* Table */}

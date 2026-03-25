@@ -6,6 +6,7 @@ import Link from 'next/link'
 import AppShell from '@/components/layout/AppShell'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { invoices, type InvoiceStatus, calcTotals, formatEur } from '@/lib/data'
+import { Plus } from 'lucide-react'
 
 type Filter = 'Toutes' | InvoiceStatus
 
@@ -33,6 +34,12 @@ export default function FacturesPage() {
   return (
     <AppShell title="Factures" subtitle={`${invoices.length} factures`}>
       <div className="p-6 space-y-5">
+        {/* Header action */}
+        <div className="flex justify-end">
+          <Link href="/factures/nouvelle" className="flex items-center gap-2 bg-[#4F7CFF] hover:bg-[#7b9fff] text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+            <Plus size={14} /> Nouvelle facture
+          </Link>
+        </div>
         {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
